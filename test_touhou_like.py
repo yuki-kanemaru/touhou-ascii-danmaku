@@ -380,5 +380,65 @@ class TestKeyMapping(unittest.TestCase):
         kb.close()
 
 
+class TestKittyProtocol(unittest.TestCase):
+    """Kitty keyboard protocol のキーコード変換と解析を検証する。"""
+
+    def test_letters(self):
+        self.assertEqual(T.kitty_key_name(97), "a")
+        self.assertEqual(T.kitty_key_name(122), "z")
+
+    def test_arrows_and_shift(self):
+        self.assertEqual(T.kitty_key_name(57350), "left")
+        self.assertEqual(T.kitty_key_name(57351), "right")
+        self.assertEqual(T.kitty_key_name(57352), "up")
+        self.assertEqual(T.kitty_key_name(57353), "down")
+        self.assertEqual(T.kitty_key_name(57441), "shift")
+
+    def test_space(self):
+        self.assertEqual(T.kitty_key_name(32), " ")
+
+    def test_unknown_code(self):
+        self.assertIsNone(T.kitty_key_name(999999))
+        self.assertIsNone(T.kitty_key_name(None))
+
+    def test_parse_press_and_release(self):
+        pressed, released, rest = T.parse_kitty_buffer(b"\x1b[97;1:1u\x1b[97;1:3u")
+        self.assertIn("a", pressed)
+        self.assertIn("a", released)
+        self.assertEqual(rest, b"")
+
+    def test_parse_arrow_press(self):
+        pressed, released, rest = T.parse_kitty_buffer(b"\x1b[57352;1:1u")
+        self.assertIn("up", pressed)
+        self.assertEqual(released, set())
+        self.assertEqual(rest, b"")
+
+    def test_repeat_is_press(self):
+        pressed, released, _ = T.parse_kitty_buffer(b"\x1b[97;1:2u")
+        self.assertIn("a", pressed)
+
+    def test_incomplete_sequence_is_kept(self):
+        pressed, released, rest = T.parse_kitty_buffer(b"\x1b[97;1")
+        self.assertEqual(pressed, set())
+        self.assertTrue(rest.startswith(b"\x1b["))
+
+    def test_kitty_capable_by_env(self):
+        saved = {k: os.environ.get(k) for k in ("KITTY_WINDOW_ID", "TERM")}
+        try:
+            os.environ["KITTY_WINDOW_ID"] = "1"
+            self.assertTrue(T.Keyboard.kitty_capable())
+            os.environ.pop("KITTY_WINDOW_ID", None)
+            os.environ["TERM"] = "xterm-kitty"
+            self.assertTrue(T.Keyboard.kitty_capable())
+            os.environ["TERM"] = "xterm-256color"
+            self.assertFalse(T.Keyboard.kitty_capable())
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

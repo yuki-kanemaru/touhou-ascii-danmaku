@@ -649,6 +649,76 @@ def map_pynput_key(key):
     return None
 
 
+# ---------------------------------------------------------------------------
+# Kitty keyboard protocol（kitty / wezterm / foot / ghostty 等）
+#   キーの押下・リピート・離上を CSI ... u で受け取れる
+# ---------------------------------------------------------------------------
+KITTY_KEYS = {
+    57350: "left", 57351: "right", 57352: "up", 57353: "down",
+    57441: "shift", 57447: "shift",  # left_shift / right_shift
+}
+KITTY_FLAGS = 1 | 2 | 8  # 1:曖昧さ解消 / 2:イベント種別 / 8:全キーをCSI uで
+
+
+def kitty_key_name(code):
+    """kitty のキーコードをゲーム内キー名へ変換する（未知は None）。"""
+    if code is None:
+        return None
+    if code in KITTY_KEYS:
+        return KITTY_KEYS[code]
+    if code == 32:  # space
+        return " "
+    if 32 <= code < 57344:
+        ch = chr(code)
+        if ch.isprintable() and not ch.isspace():
+            return ch.lower()
+    return None
+
+
+def parse_kitty_buffer(buffer):
+    """CSI ... u 形式の入力を解析する。
+
+    戻り値: (pressed, released, rest)
+      pressed / released はキー名の集合、rest は未解析の残りバイト列。
+    形式: ESC [ code:alt:base ; mods:event ; text u
+    """
+    pressed, released = set(), set()
+    text = buffer.decode("latin-1", "ignore")
+    while True:
+        start = text.find("\x1b[")
+        if start < 0:
+            text = ""
+            break
+        end = text.find("u", start)
+        if end < 0:
+            text = text[start:]
+            break
+        body = text[start + 2:end]
+        text = text[end + 1:]
+        if not body or not body[0].isdigit():
+            continue
+        fields = body.split(";")
+        try:
+            code = int(fields[0].split(":")[0])
+        except (ValueError, IndexError):
+            continue
+        event = 1
+        if len(fields) > 1 and ":" in fields[1]:
+            ev = fields[1].split(":")[-1]
+            if ev.isdigit():
+                event = int(ev)
+        name = kitty_key_name(code)
+        if not name:
+            continue
+        if event == 3:
+            released.add(name)
+        else:
+            pressed.add(name)
+    if len(text) > 8192:
+        text = text[-8192:]
+    return pressed, released, text.encode("latin-1", "ignore")
+
+
 class Keyboard:
     """非ブロッキング入力。(active, edges) を返す。
 
@@ -676,7 +746,12 @@ class Keyboard:
         self._held = set()
         self._edges = set()
         self._hold_until = {}
+        self._kitty_buf = b""
         self._win_console = None
+
+        # 0) kitty keyboard protocol（Waylandでも押下/離上が取れる）
+        if force in ("auto", "kitty") and self._init_kitty():
+            return
 
         # 1) pynput（押しっぱなし・斜め移動・Shift が快適に取れる）
         if force in ("auto", "pynput") and prefer_pynput:
@@ -794,6 +869,7 @@ class Keyboard:
     @property
     def platform_name(self):
         return {
+            "kitty": "kitty keyboard protocol（押下/離上対応）",
             "pynput": "pynput（押しっぱなし対応）",
             "msvcrt": "Windows (msvcrt)",
             "posix": "Linux/macOS (termios)",
@@ -808,6 +884,8 @@ class Keyboard:
                 edges = set(self._edges)
                 self._edges.clear()
             return active, edges
+        if self.backend == "kitty":
+            return self._poll_kitty()
         if self.backend == "msvcrt":
             return self._with_hold_grace(self._poll_windows())
         if self.backend == "posix":
@@ -827,6 +905,69 @@ class Keyboard:
         if len(self._hold_until) > 16:
             self._hold_until = {k: u for k, u in self._hold_until.items() if u > now}
         return active, set(keys)
+
+    # ------------------------------------------------------------------
+    # kitty keyboard protocol
+    # ------------------------------------------------------------------
+    @staticmethod
+    def kitty_capable():
+        """kitty 系の端末か（環境変数で判定）。"""
+        term = os.environ.get("TERM", "")
+        return bool(os.environ.get("KITTY_WINDOW_ID")) or "kitty" in term
+
+    def _write_kb(self, text):
+        try:
+            sys.stdout.write(text)
+            sys.stdout.flush()
+        except Exception:
+            pass
+
+    def _init_kitty(self):
+        if not self.kitty_capable():
+            return False
+        if sys.stdin is None or not sys.stdin.isatty():
+            return False
+        try:
+            import select
+            import termios
+            import tty
+
+            self._fd = sys.stdin.fileno()
+            self._termios = termios
+            self._select = select
+            self._saved = termios.tcgetattr(self._fd)
+            tty.setcbreak(self._fd)
+            self._kitty_buf = b""
+            self._held = set()
+            self._write_kb("\x1b[>%du" % KITTY_FLAGS)  # 押下/離上の報告を有効化
+            self.backend = "kitty"
+            return True
+        except Exception:
+            return False
+
+    def _poll_kitty(self):
+        data = b""
+        while True:
+            r, _, _ = self._select.select([self._fd], [], [], 0)
+            if not r:
+                break
+            try:
+                chunk = os.read(self._fd, 256)
+            except OSError:
+                break
+            if not chunk:
+                break
+            data += chunk
+        if data:
+            self._kitty_buf += data
+        pressed, released, rest = parse_kitty_buffer(self._kitty_buf)
+        self._kitty_buf = rest
+
+        before = set(self._held)
+        self._held |= pressed
+        self._held -= released
+        edges = pressed - before
+        return set(self._held), edges
 
     def _poll_windows(self):
         out = set()
@@ -882,6 +1023,8 @@ class Keyboard:
 
     def close(self):
         """リスナー停止と端末設定の復元。"""
+        if self.backend == "kitty":
+            self._write_kb("\x1b[<u")  # keyboard protocol の設定を元に戻す
         if self._listener is not None:
             try:
                 self._listener.stop()
@@ -1011,9 +1154,9 @@ def main(argv=None):
                         help="キーボード無しで N フレーム自動プレイし、最終フレームを素のテキストで出力")
     parser.add_argument("--list", action="store_true", help="弾幕パターンとボス名を一覧表示して終了")
     parser.add_argument("--no-save", action="store_true", help="ハイスコアを保存しない")
-    parser.add_argument("--input", choices=["auto", "pynput", "termios", "msvcrt"],
+    parser.add_argument("--input", choices=["auto", "kitty", "pynput", "termios", "msvcrt"],
                         default="auto",
-                        help="入力バックエンドを強制する（Waylandでpynputが効かない場合は termios）")
+                        help="入力バックエンドを強制する（kitty系端末は kitty、Waylandでpynput不可なら termios）")
     args = parser.parse_args(argv)
 
     if args.list:

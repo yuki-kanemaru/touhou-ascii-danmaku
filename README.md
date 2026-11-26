@@ -99,8 +99,11 @@ python -m pip install -r requirements.txt
 
 | 入力方式 | 使うタイミング | 押しっぱなし | Shift |
 |---|---|---|---|
+| **kitty keyboard protocol** | kitty / wezterm / foot / ghostty などの端末 | ◎ なめらか | ◎ 効く |
 | `pynput`（推奨） | インストール済みのとき自動で使用 | ◎ なめらか | ◎ 効く |
-| `msvcrt` / `termios` | `pynput` が無いとき | △ キーリピート待ち | △ 環境による |
+| `msvcrt` / `termios` | 上記が使えないとき | △ キーリピート待ち | △ 環境による |
+
+**kitty 系の端末（`xterm-kitty` など）では、追加インストール不要で押下/離上を取得できます**（Kitty keyboard protocol を自動で有効化）。
 
 ## 起動方法
 
@@ -130,7 +133,8 @@ python touhou_like.py --demo 300
 入力バックエンドは自動判定されますが、環境に合わない場合は明示できます。
 
 ```bash
-python touhou_like.py --input termios   # Linux: termios（pynput が効かないとき）
+python touhou_like.py --input kitty    # kitty系端末（押下/離上を使う）
+python touhou_like.py --input termios   # Linux: termios（押しっぱなしはキーリピート頼み）
 python touhou_like.py --input pynput    # pynput を強制
 python touhou_like.py --input msvcrt    # Windows: msvcrt を強制
 ```
