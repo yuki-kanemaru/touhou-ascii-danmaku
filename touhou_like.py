@@ -778,8 +778,24 @@ def _flush_stdout(text):
     sys.stdout.flush()
 
 
+def wait_next_frame(last, tick=TICK):
+    """フレーム間隔を調整し、**実際に経過した** dt を返す。
+
+    time.sleep() は環境によって要求より早く返ることがある。
+    その場合に固定値 tick を代入すると、実時間より速く時間が進んでしまうため、
+    待機後に必ず時刻を測り直して実経過時間を返す。
+    """
+    now = time.perf_counter()
+    dt = now - last
+    if dt < tick:
+        time.sleep(tick - dt)
+        now = time.perf_counter()
+        dt = now - last
+    return now, min(dt, 0.25)
+
+
 # ---------------------------------------------------------------------------
-# 通常モード（ANSI 描画 + msvcrt ループ）
+# 通常モード（ANSI 描画 + 端末入力ループ）
 # ---------------------------------------------------------------------------
 def play():
     kb = Keyboard()
@@ -795,12 +811,7 @@ def play():
     try:
         _flush_stdout("\x1b[?25l")  # カーソル非表示
         while True:
-            now = time.perf_counter()
-            dt = now - last
-            last = now
-            if dt < TICK:
-                time.sleep(max(0.0, TICK - dt))
-                dt = TICK
+            last, dt = wait_next_frame(last)
 
             new_keys = kb.poll()
             if new_keys:

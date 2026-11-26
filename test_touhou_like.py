@@ -284,5 +284,36 @@ class TestKeyboardPosix(unittest.TestCase):
         self.assertFalse(kb.available)
 
 
+class TestFrameTiming(unittest.TestCase):
+    """フレーム待ちの時間計算（時間が水増しされないこと）を検証する。"""
+
+    def test_game_time_matches_wall_time(self):
+        import time
+
+        last = time.perf_counter()
+        t0 = last
+        total = 0.0
+        for _ in range(10):
+            last, dt = T.wait_next_frame(last)
+            total += dt
+        wall = time.perf_counter() - t0
+        ratio = total / wall
+        # 実際の経過時間とゲーム内時間がほぼ一致すること（以前は約2倍速だった）
+        self.assertGreater(ratio, 0.6, "ゲーム内時間が実時間より遅すぎる: %.2fx" % ratio)
+        self.assertLess(ratio, 1.5, "ゲーム内時間が実時間より速すぎる: %.2fx" % ratio)
+
+    def test_dt_is_clamped_for_huge_gaps(self):
+        import time
+
+        _, dt = T.wait_next_frame(time.perf_counter() - 5.0)
+        self.assertLessEqual(dt, 0.25)
+
+    def test_dt_is_positive(self):
+        import time
+
+        _, dt = T.wait_next_frame(time.perf_counter())
+        self.assertGreaterEqual(dt, 0.0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
