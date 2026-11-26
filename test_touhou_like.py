@@ -523,5 +523,33 @@ class TestMovementEasing(unittest.TestCase):
         self.assertEqual(s["player"]["vx"], 0.0)
 
 
+class TestFocusMode(unittest.TestCase):
+    """Shift（低速移動）の倍率と、フォーカス中の表示を検証する。"""
+
+    def test_focus_reduces_speed_by_scale(self):
+        normal = make()
+        normal["player"]["x"] = 20.0
+        focus = make()
+        focus["player"]["x"] = 20.0
+        focus["player"]["focus"] = True
+        for _ in range(20):
+            T.update(normal, T.TICK, {"move_x": 1})
+            T.update(focus, T.TICK, {"move_x": 1})
+        ratio = focus["player"]["vx"] / normal["player"]["vx"]
+        self.assertAlmostEqual(ratio, T.FOCUS_SPEED_SCALE, places=2)
+
+    def test_header_shows_focus_indicator(self):
+        s = make()
+        s["player"]["focus"] = True
+        self.assertIn("FOCUS", T.render_header(s))
+        s["player"]["focus"] = False
+        self.assertNotIn("FOCUS", T.render_header(s))
+
+    def test_player_is_white_while_focusing(self):
+        row = "...@..."
+        self.assertNotIn(T.COLOR_FOCUS, T.colorize_row(row))
+        self.assertIn(T.COLOR_FOCUS, T.colorize_row(row, focus=True))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

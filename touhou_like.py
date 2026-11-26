@@ -68,6 +68,7 @@ PLAYER_RADIUS = 1.0        # 当たり判定（とても小さい）
 GRAZE_RADIUS = 2.6         # グレイズ判定（当たり判定の外側リング）
 PLAYER_SPEED = 24.0        # 文字/秒
 PLAYER_ACCEL = 22.0        # 加減速の速さ（1/秒）。大きいほど機敏
+FOCUS_SPEED_SCALE = 0.40   # Shift（低速移動）中の速度倍率
 SHOT_INTERVAL = 0.09       # ショット間隔（秒）
 SHOT_SPEED = 42.0
 SHOT_DAMAGE = 1
@@ -275,7 +276,7 @@ def _update_player(state, dt, move_x, move_y, shoot, bomb):
         move_x *= norm
         move_y *= norm
 
-    speed = PLAYER_SPEED * (0.55 if p["focus"] else 1.0)
+    speed = PLAYER_SPEED * (FOCUS_SPEED_SCALE if p["focus"] else 1.0)
 
     # 加減速（イージング）: 押した瞬間に最高速へ達しないので精密に動かせる
     k = 1.0 - math.exp(-PLAYER_ACCEL * dt)
@@ -541,12 +542,14 @@ def render_rows(state):
 
 def render_header(state):
     p = state["player"]
-    return "SCORE %06d  HI %06d  PLAYER %s  BOMB %s  GRAZE %d" % (
+    focus = "  FOCUS" if p.get("focus") else ""
+    return "SCORE %06d  HI %06d  PLAYER %s  BOMB %s  GRAZE %d%s" % (
         state["score"],
         max(state["hi_score"], state["score"]),
         LIFE_SYMBOL * max(0, p["lives"]) if p["lives"] > 0 else "-",
         BOMB_SYMBOL * max(0, p["bombs"]) if p["bombs"] > 0 else "-",
         state["graze"],
+        focus,
     )
 
 
@@ -565,12 +568,18 @@ def render_boss_line(state):
     )
 
 
-def colorize_row(row):
-    """1行をセル単位で色付けする（色の切り替え回数を抑える）。"""
+def colorize_row(row, focus=False):
+    """1行をセル単位で色付けする（色の切り替え回数を抑える）。
+
+    focus=True のときは自機を白くして、低速移動中であることを示す。
+    """
     out = []
     last = None
     for ch in row:
-        code = COLORS.get(ch, COLOR_RESET)
+        if focus and ch == PLAYER_SYMBOL:
+            code = COLOR_FOCUS
+        else:
+            code = COLORS.get(ch, COLOR_RESET)
         if code != last:
             out.append(code)
             last = code
@@ -588,7 +597,7 @@ def render_screen(state, ansi=False, clear=True, color=False):
     boss_line = render_boss_line(state)
     rows = render_rows(state)
     if color:
-        rows = [colorize_row(r) for r in rows]
+        rows = [colorize_row(r, focus=state["player"].get("focus", False)) for r in rows]
     lines = [header, boss_line]
     lines.extend(rows)
     lines.append("-" * state["width"])
