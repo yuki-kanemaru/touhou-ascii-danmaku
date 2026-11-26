@@ -661,6 +661,8 @@ class Keyboard:
         b"OA": "up", b"OB": "down", b"OC": "right", b"OD": "left",
     }
 
+    HOLD_GRACE = 0.16  # 秒: 端末でキーリピート待ちの間も「押されている」とみなす猶予
+
     def __init__(self, prefer_pynput=True, force=None):
         force = force or "auto"
         self.backend = None
@@ -673,6 +675,7 @@ class Keyboard:
         self._lock = None
         self._held = set()
         self._edges = set()
+        self._hold_until = {}
         self._win_console = None
 
         # 1) pynput（押しっぱなし・斜め移動・Shift が快適に取れる）
@@ -806,12 +809,24 @@ class Keyboard:
                 self._edges.clear()
             return active, edges
         if self.backend == "msvcrt":
-            keys = self._poll_windows()
-            return keys, set(keys)
+            return self._with_hold_grace(self._poll_windows())
         if self.backend == "posix":
-            keys = self._poll_posix()
-            return keys, set(keys)
+            return self._with_hold_grace(self._poll_posix())
         return set(), set()
+
+    def _with_hold_grace(self, keys):
+        """キーリピート間を補間する（pynput が無い環境の操作感を改善）。
+
+        端末からは「押した瞬間」しか届かないため、最後に入力を見てから
+        HOLD_GRACE 秒は押され続けているとみなす。
+        """
+        now = time.perf_counter()
+        for k in keys:
+            self._hold_until[k] = now + self.HOLD_GRACE
+        active = {k for k, until in self._hold_until.items() if until > now}
+        if len(self._hold_until) > 16:
+            self._hold_until = {k: u for k, u in self._hold_until.items() if u > now}
+        return active, set(keys)
 
     def _poll_windows(self):
         out = set()

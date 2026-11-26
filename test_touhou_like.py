@@ -239,6 +239,7 @@ class TestKeyboardPosix(unittest.TestCase):
         kb._lock = None
         kb._held = set()
         kb._edges = set()
+        kb._hold_until = {}
         kb._win_console = None
         kb._buf = kb._select.data
         kb.keys = set()
@@ -283,6 +284,24 @@ class TestKeyboardPosix(unittest.TestCase):
     def test_close_without_terminal_is_safe(self):
         kb = self._make_kb(b"")
         kb.close()  # _saved が None でも例外にならない
+
+    def test_hold_grace_keeps_key_active_between_repeats(self):
+        import time
+
+        kb = self._make_kb(b"")
+        active, edges = kb._with_hold_grace({"d"})
+        self.assertIn("d", active)
+        self.assertIn("d", edges)
+
+        # 端末はキーリピート待ちで無入力になるが、直前の入力なので継続扱い
+        active2, edges2 = kb._with_hold_grace(set())
+        self.assertIn("d", active2)
+        self.assertEqual(edges2, set())
+
+        # 猶予を超えたら押されていない扱い
+        time.sleep(kb.HOLD_GRACE + 0.05)
+        active3, _ = kb._with_hold_grace(set())
+        self.assertNotIn("d", active3)
 
     def test_available_false_for_unknown_backend(self):
         kb = self._make_kb(b"")
