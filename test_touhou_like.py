@@ -303,6 +303,11 @@ class TestKeyboardPosix(unittest.TestCase):
         active3, _ = kb._with_hold_grace(set())
         self.assertNotIn("d", active3)
 
+    def test_kitty_backend_is_available(self):
+        kb = self._make_kb(b"")
+        kb.backend = "kitty"
+        self.assertTrue(kb.available, "kitty バックエンドは利用可能として扱うこと")
+
     def test_available_false_for_unknown_backend(self):
         kb = self._make_kb(b"")
         kb.backend = None

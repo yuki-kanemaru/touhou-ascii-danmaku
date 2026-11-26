@@ -860,7 +860,7 @@ class Keyboard:
 
     @property
     def available(self):
-        if self.backend in ("pynput", "posix"):
+        if self.backend in ("pynput", "posix", "kitty"):
             return True
         if self.backend == "msvcrt":
             return sys.stdin is not None and sys.stdin.isatty()
@@ -911,7 +911,9 @@ class Keyboard:
     # ------------------------------------------------------------------
     @staticmethod
     def kitty_capable():
-        """kitty 系の端末か（環境変数で判定）。"""
+        """kitty 系の端末か（環境変数で判定）。tmux/screen 内は除外する。"""
+        if os.environ.get("TMUX") or os.environ.get("STY"):
+            return False  # 多重化ツールがシーケンスを解釈してしまうため
         term = os.environ.get("TERM", "")
         return bool(os.environ.get("KITTY_WINDOW_ID")) or "kitty" in term
 
