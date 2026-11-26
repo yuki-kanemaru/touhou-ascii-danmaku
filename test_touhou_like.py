@@ -551,5 +551,26 @@ class TestFocusMode(unittest.TestCase):
         self.assertIn(T.COLOR_FOCUS, T.colorize_row(row, focus=True))
 
 
+class TestDiffRender(unittest.TestCase):
+    """差分描画（変更行のみ更新）の検証。"""
+
+    def test_compose_lines_matches_plain_render(self):
+        s = make()
+        self.assertEqual("\n".join(T.compose_lines(s)), T.render_screen(s))
+
+    def test_only_changed_lines_are_written(self):
+        out = T.diff_frame(["A", "B", "C"], ["A", "X", "C"])
+        self.assertIn("\x1b[2;1H", out)
+        self.assertNotIn("\x1b[1;1H", out)
+        self.assertNotIn("\x1b[3;1H", out)
+
+    def test_identical_frame_writes_nothing(self):
+        self.assertEqual(T.diff_frame(["A", "B"], ["A", "B"]), "")
+
+    def test_line_count_change_triggers_clear(self):
+        out = T.diff_frame(["A"], ["A", "B"])
+        self.assertTrue(out.startswith("\x1b[2J"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

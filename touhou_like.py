@@ -588,32 +588,55 @@ def colorize_row(row, focus=False):
     return "".join(out)
 
 
-def render_screen(state, ansi=False, clear=True, color=False):
-    """画面全体を1つの文字列で返す。
-
-    ansi=True で ANSI 制御付き（本番描画用）、color=True で行に色を付ける。
-    """
-    header = render_header(state)
-    boss_line = render_boss_line(state)
+def compose_lines(state, color=False):
+    """画面の行リストを組み立てる（ANSI 制御は含めない）。"""
     rows = render_rows(state)
     if color:
-        rows = [colorize_row(r, focus=state["player"].get("focus", False)) for r in rows]
-    lines = [header, boss_line]
-    lines.extend(rows)
-    lines.append("-" * state["width"])
+        focus = state["player"].get("focus", False)
+        rows = [colorize_row(r, focus=focus) for r in rows]
     status = "TICK %d  TIME %.1fs  %s" % (
         state["tick"],
         state["elapsed"],
         "GAME OVER (Q)" if state["game_over"] else ("BOMBING" if state["bomb_timer"] > 0 else "PLAYING"),
     )
+    lines = [render_header(state), render_boss_line(state)]
+    lines.extend(rows)
+    lines.append("-" * state["width"])
     lines.append(status)
     for msg in state["messages"]:
         lines.append(">> " + msg)
-    text = "\n".join(lines)
+    return lines
+
+
+def render_screen(state, ansi=False, clear=True, color=False):
+    """画面全体を1つの文字列で返す。
+
+    ansi=True で ANSI 制御付き（本番描画用）、color=True で行に色を付ける。
+    """
+    text = "\n".join(compose_lines(state, color=color))
     if ansi:
         prefix = "\x1b[2J\x1b[H" if clear else "\x1b[H"
         return SYNC_START + prefix + text + SYNC_END
     return text
+
+
+def diff_frame(prev_lines, lines):
+    """前フレームから変わった行だけを書き換える ANSI 文字列を返す。
+
+    行数が変わったとき（初回・リサイズ）は全画面を消してから描き直す。
+    """
+    out = []
+    if len(prev_lines) != len(lines):
+        out.append("\x1b[2J")
+        prev = [None] * len(lines)
+    else:
+        prev = prev_lines
+    for i, line in enumerate(lines):
+        if prev[i] != line:
+            out.append("\x1b[%d;1H" % (i + 1))
+            out.append(line)
+            out.append("\x1b[K")
+    return "".join(out)
 
 
 def render_final_frame(state):
@@ -1186,6 +1209,7 @@ def play(input_backend="auto", use_color=True):
     state = new_state()
     state["hi_score"] = load_highscore()
     last = time.perf_counter()
+    prev_lines = []  # 差分描画用（前フレームの行）
     try:
         _flush_stdout("\x1b[?25l")  # カーソル非表示
         while True:
@@ -1200,9 +1224,12 @@ def play(input_backend="auto", use_color=True):
                 break
             update(state, dt, inp)
 
-            _flush_stdout(render_screen(state, ansi=True, color=color))
+            lines = compose_lines(state, color=color)
+            frame = diff_frame(prev_lines, lines)
+            if frame:
+                _flush_stdout(SYNC_START + frame + SYNC_END)
+            prev_lines = lines
             if state["game_over"]:
-                _flush_stdout(render_screen(state, ansi=True, color=color))
                 _flush_stdout("\nGAME OVER  -  ENTER で終了\n")
                 break
     except KeyboardInterrupt:
