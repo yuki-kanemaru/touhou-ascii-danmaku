@@ -212,5 +212,77 @@ class TestHighscoreAndDemo(unittest.TestCase):
         self.assertEqual(len(T.render_final_frame(s).splitlines()) >= T.FIELD_H, True)
 
 
+class _FakeSelect:
+    """読み取り可能バイト列を返す select の代役（POSIX 入力の擬似テスト用）。"""
+
+    def __init__(self, data):
+        self.data = bytearray(data)
+
+    def select(self, rlist, wlist, xlist, timeout=0.0):
+        if self.data:
+            return (list(rlist), [], [])
+        return ([], [], [])
+
+
+class TestKeyboardPosix(unittest.TestCase):
+    """Linux/macOS 用の termios 入力パーサを、Windows 上でも擬似的に検証する。"""
+
+    def _make_kb(self, data):
+        kb = object.__new__(T.Keyboard)
+        kb.backend = "posix"
+        kb.msvcrt = None
+        kb._fd = 0
+        kb._saved = None
+        kb._termios = None
+        kb._select = _FakeSelect(data)
+        kb._buf = kb._select.data
+        kb.keys = set()
+        return kb
+
+    def _poll(self, data):
+        kb = self._make_kb(data)
+        real_read = os.read
+
+        def fake_read(fd, n):
+            if kb._buf:
+                return bytes([kb._buf.pop(0)])
+            return b""
+
+        os.read = fake_read
+        try:
+            return kb.poll()
+        finally:
+            os.read = real_read
+
+    def test_arrow_right(self):
+        self.assertIn("right", self._poll(b"\x1b[C"))
+
+    def test_arrow_up(self):
+        self.assertIn("up", self._poll(b"\x1b[A"))
+
+    def test_plain_letter_is_lowercased(self):
+        self.assertIn("z", self._poll(b"Z"))
+
+    def test_enter_becomes_carriage_return(self):
+        self.assertIn("\r", self._poll(b"\r"))
+
+    def test_bare_escape_quits(self):
+        self.assertIn("\x1b", self._poll(b"\x1b"))
+
+    def test_sequence_and_letter_together(self):
+        keys = self._poll(b"\x1b[Dx")
+        self.assertIn("left", keys)
+        self.assertIn("x", keys)
+
+    def test_close_without_terminal_is_safe(self):
+        kb = self._make_kb(b"")
+        kb.close()  # _saved が None でも例外にならない
+
+    def test_available_false_for_unknown_backend(self):
+        kb = self._make_kb(b"")
+        kb.backend = None
+        self.assertFalse(kb.available)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

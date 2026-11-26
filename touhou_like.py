@@ -5,7 +5,8 @@
 =====================================================
 
 * 標準ライブラリのみ（curses 不使用 / ANSI エスケープで描画）
-* ロジック（state 辞書 + 純粋な更新関数）と入出力（ANSI 描画 / msvcrt 入力）を分離
+* Windows（msvcrt）と Linux/macOS（termios + select）の両方でキー入力に対応
+* ロジック（state 辞書 + 純粋な更新関数）と入出力（ANSI 描画 / 端末入力）を分離
 * `--demo N` でキーボード無しの自動プレイ → 最終フレームを素のテキストで出力
 
 実行例:
@@ -624,41 +625,133 @@ def run_demo(frames, seed=0xC0FFEE, dt=TICK):
 
 
 # ---------------------------------------------------------------------------
-# リアルタイム入力（msvcrt があり、端末に繋がっている時だけ使う）
+# リアルタイム入力（Windows: msvcrt / Linux・macOS: termios+tty+select）
 # ---------------------------------------------------------------------------
 class Keyboard:
-    """msvcrt ベースの非ブロッキング入力。使えない環境では何も返さない。"""
+    """非ブロッキング入力。Windows は msvcrt、Linux/macOS は termios を使う。"""
+
+    ESC_SEQ = {
+        b"[A": "up", b"[B": "down", b"[C": "right", b"[D": "left",
+        b"OA": "up", b"OB": "down", b"OC": "right", b"OD": "left",
+    }
 
     def __init__(self):
+        self.backend = None
         self.msvcrt = None
+        self._fd = None
+        self._saved = None
+        self._termios = None
+        self._select = None
+        self.keys = set()
+
+        # 1) Windows: msvcrt
         try:
             import msvcrt  # type: ignore
 
             self.msvcrt = msvcrt
+            self.backend = "msvcrt"
+            return
         except Exception:
             self.msvcrt = None
-        self.keys = set()
+
+        # 2) Linux / macOS: termios + select
+        if sys.stdin is not None:
+            try:
+                import select
+                import termios
+                import tty
+
+                if sys.stdin.isatty():
+                    self._fd = sys.stdin.fileno()
+                    self._termios = termios
+                    self._select = select
+                    self._saved = termios.tcgetattr(self._fd)
+                    tty.setcbreak(self._fd)
+                    self.backend = "posix"
+            except Exception:
+                self.backend = None
 
     @property
     def available(self):
-        return self.msvcrt is not None and sys.stdin is not None and sys.stdin.isatty()
+        if self.backend == "msvcrt":
+            return sys.stdin is not None and sys.stdin.isatty()
+        if self.backend == "posix":
+            return True
+        return False
+
+    @property
+    def platform_name(self):
+        return {"msvcrt": "Windows (msvcrt)",
+                "posix": "Linux/macOS (termios)",
+                None: "未対応"}[self.backend]
 
     def poll(self):
-        if not self.available:
-            return set()
+        if self.backend == "msvcrt":
+            return self._poll_windows()
+        if self.backend == "posix":
+            return self._poll_posix()
+        return set()
+
+    def _poll_windows(self):
         out = set()
         try:
             while self.msvcrt.kbhit():
                 ch = self.msvcrt.getwch()
                 if not ch:
                     break
-                if ch in ("\x00", "\xe0"):  # 拡張キー(矢印等)の2バイト目を捨てる
-                    self.msvcrt.getwch()
+                if ch in ("\x00", "\xe0"):  # 拡張キー(矢印等)の2バイト目
+                    code = self.msvcrt.getwch()
+                    arrow = {"H": "up", "P": "down", "K": "left", "M": "right"}.get(
+                        (code or "").upper()
+                    )
+                    if arrow:
+                        out.add(arrow)
                     continue
                 out.add(ch.lower())
         except Exception:
             return set()
         return out
+
+    def _read_byte(self, timeout=0.0):
+        r, _, _ = self._select.select([self._fd], [], [], timeout)
+        if not r:
+            return b""
+        try:
+            return os.read(self._fd, 1)
+        except OSError:
+            return b""
+
+    def _poll_posix(self):
+        out = set()
+        while True:
+            ch = self._read_byte(0.0)
+            if not ch:
+                break
+            if ch == b"\x1b":
+                # ESC 単独か、矢印キーのエスケープシーケンスかを判別する
+                nxt = self._read_byte(0.005)
+                if nxt in (b"[", b"O"):
+                    third = self._read_byte(0.005)
+                    key = self.ESC_SEQ.get(nxt + third)
+                    if key:
+                        out.add(key)
+                        continue
+                out.add("\x1b")
+                continue
+            if ch in (b"\r", b"\n"):
+                out.add("\r")
+                continue
+            out.add(ch.decode("utf-8", "ignore").lower())
+        return out
+
+    def close(self):
+        """端末設定を元に戻す（POSIX では必須）。"""
+        if self.backend == "posix" and self._saved is not None and self._fd is not None:
+            try:
+                self._termios.tcsetattr(self._fd, self._termios.TCSADRAIN, self._saved)
+            except Exception:
+                pass
+            self._saved = None
 
 
 def key_to_input(keys, state):
@@ -691,8 +784,8 @@ def _flush_stdout(text):
 def play():
     kb = Keyboard()
     if not kb.available:
-        print("[注意] msvcrt か端末が使えない環境のため、自動デモで代わりに動作確認します。")
-        print("       通常プレイには Windows のターミナル（PowerShell 等）で実行してください。")
+        print("[注意] この環境では端末のキー入力を取得できないため、自動デモで代わりに動作確認します。")
+        print("       通常プレイは、キー入力できるターミナル（Windows: PowerShell / Linux: bash 等）で実行してください。")
         return run_main_demo(120)
 
     state = new_state()
@@ -730,6 +823,7 @@ def play():
     except KeyboardInterrupt:
         pass
     finally:
+        kb.close()  # POSIX では端末設定を戻す（Windows では何もしない）
         _flush_stdout("\x1b[?25h\x1b[0m\n")
         if state["score"] > load_highscore():
             save_highscore(state["score"])
