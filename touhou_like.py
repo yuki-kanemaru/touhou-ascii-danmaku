@@ -47,6 +47,18 @@ ENEMY_SYMBOL = "o"
 BOSS_SYMBOL = "B"
 EMPTY_SYMBOL = "."
 
+# 色（24bit truecolor）。NO_COLOR / --no-color / 非tty では無効化される
+COLOR_RESET = "\x1b[0m"
+COLORS = {
+    PLAYER_SYMBOL: "\x1b[38;2;120;240;255m",   # @ 水色
+    BOSS_SYMBOL: "\x1b[38;2;255;215;0m",       # B 黄
+    ENEMY_SYMBOL: "\x1b[38;2;255;120;200m",    # o ピンク
+    BULLET_SYMBOL: "\x1b[38;2;190;140;255m",   # * 紫
+    "%": "\x1b[38;2;255;170;60m",              # 爆発
+    EMPTY_SYMBOL: "\x1b[38;2;70;70;85m",       # . 暗い灰
+}
+COLOR_FOCUS = "\x1b[38;2;255;255;255m"          # 低速移動中の自機（白）
+
 # 自機
 PLAYER_RADIUS = 1.0        # 当たり判定（とても小さい）
 GRAZE_RADIUS = 2.6         # グレイズ判定（当たり判定の外側リング）
@@ -524,10 +536,32 @@ def render_boss_line(state):
     )
 
 
-def render_screen(state, ansi=False, clear=True):
-    """画面全体を1つの文字列で返す。ansi=True で ANSI 制御付き（本番描画用）。"""
-    lines = [render_header(state), render_boss_line(state)]
-    lines.extend(render_rows(state))
+def colorize_row(row):
+    """1行をセル単位で色付けする（色の切り替え回数を抑える）。"""
+    out = []
+    last = None
+    for ch in row:
+        code = COLORS.get(ch, COLOR_RESET)
+        if code != last:
+            out.append(code)
+            last = code
+        out.append(ch)
+    out.append(COLOR_RESET)
+    return "".join(out)
+
+
+def render_screen(state, ansi=False, clear=True, color=False):
+    """画面全体を1つの文字列で返す。
+
+    ansi=True で ANSI 制御付き（本番描画用）、color=True で行に色を付ける。
+    """
+    header = render_header(state)
+    boss_line = render_boss_line(state)
+    rows = render_rows(state)
+    if color:
+        rows = [colorize_row(r) for r in rows]
+    lines = [header, boss_line]
+    lines.extend(rows)
     lines.append("-" * state["width"])
     status = "TICK %d  TIME %.1fs  %s" % (
         state["tick"],
@@ -1091,8 +1125,9 @@ def wait_next_frame(last, tick=TICK):
 # ---------------------------------------------------------------------------
 # 通常モード（ANSI 描画 + 端末入力ループ）
 # ---------------------------------------------------------------------------
-def play(input_backend="auto"):
+def play(input_backend="auto", use_color=True):
     kb = Keyboard(force=input_backend)
+    color = bool(use_color) and not os.environ.get("NO_COLOR") and sys.stdout.isatty()
     if kb.backend == "pynput" and os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland":
         print("[注意] Wayland 環境では pynput がキーを取得できない場合があります。")
         print("       キーが効かないときは  python touhou_like.py --input termios  で起動してください。")
@@ -1127,9 +1162,9 @@ def play(input_backend="auto"):
                 break
             update(state, dt, inp)
 
-            _flush_stdout(render_screen(state, ansi=True))
+            _flush_stdout(render_screen(state, ansi=True, color=color))
             if state["game_over"]:
-                _flush_stdout(render_screen(state, ansi=True))
+                _flush_stdout(render_screen(state, ansi=True, color=color))
                 _flush_stdout("\nGAME OVER  -  ENTER で終了\n")
                 break
     except KeyboardInterrupt:
@@ -1169,6 +1204,7 @@ def main(argv=None):
                         help="入力バックエンドを強制する（kitty系端末は kitty、Waylandでpynput不可なら termios）")
     parser.add_argument("--check-input", action="store_true",
                         help="入力環境の診断（バックエンド・stdinが端末か・TERM等）を表示して終了")
+    parser.add_argument("--no-color", action="store_true", help="色を使わない（NO_COLOR 環境変数でも無効化）")
     args = parser.parse_args(argv)
 
     if args.check_input:
@@ -1206,7 +1242,7 @@ def main(argv=None):
             save_highscore(state["score"])
         return 0
 
-    return play(input_backend=args.input)
+    return play(input_backend=args.input, use_color=not args.no_color)
 
 
 if __name__ == "__main__":

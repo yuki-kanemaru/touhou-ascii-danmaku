@@ -445,5 +445,25 @@ class TestKittyProtocol(unittest.TestCase):
                     os.environ[k] = v
 
 
+class TestColor(unittest.TestCase):
+    """色付け（truecolor）が正しく付き、素の描画に混ざらないことを検証する。"""
+
+    def test_colorize_row_adds_truecolor_and_reset(self):
+        row = T.colorize_row("..@*.o")
+        self.assertIn("\x1b[38;2;", row)
+        self.assertTrue(row.endswith(T.COLOR_RESET))
+
+    def test_plain_render_has_no_escape(self):
+        s = make()
+        self.assertNotIn("\x1b", T.render_screen(s, ansi=False, color=False))
+
+    def test_color_applied_only_when_requested(self):
+        s = make()
+        plain = T.render_screen(s, ansi=True, color=False)
+        colored = T.render_screen(s, ansi=True, color=True)
+        self.assertNotIn("\x1b[38;2;", plain)
+        self.assertIn("\x1b[38;2;", colored)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
