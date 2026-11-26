@@ -138,6 +138,16 @@ python touhou_like.py --input msvcrt    # Windows: msvcrt を強制
 **Wayland（GNOME / KDE の Wayland セッション）では `pynput` がキーを取得できない場合があります。**
 そのときは `--input termios` で起動してください（押しっぱなしはキーリピート頼みになりますが操作できます）。
 
+なお、`termios` 入力では**キーリピートの初回待ち（既定 250〜500ms）**だけが残ります。コンポジタ側の設定を短くすると操作しやすくなります。
+
+```bash
+# GNOME
+gsettings set org.gnome.desktop.peripherals.keyboard delay 200
+gsettings set org.gnome.desktop.peripherals.keyboard rate 60
+```
+
+（Sway / Hyprland は設定ファイルの `repeat_delay` / `repeat_rate` を変更）
+
 ## 操作方法
 
 | キー | 動作 |
