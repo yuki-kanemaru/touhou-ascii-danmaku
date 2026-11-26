@@ -77,6 +77,26 @@ uv run --with pynput python touhou_like.py
 
 > `pynput` が入らなくても**ゲーム自体は起動します**（キーリピート頼みになり、操作はカクつきます）。
 
+#### Arch Linux の場合
+
+Arch は **pip を同梱していません**（`python` は入っていても `pip` は別パッケージ）。`pynput` は公式リポジトリから入れられます。
+
+```bash
+sudo pacman -S python-pynput
+python touhou_like.py
+```
+
+pip 経由で入れたい場合のみ:
+
+```bash
+sudo pacman -S python-pip
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements.txt
+```
+
+> Arch は **PEP 668** によりシステムへの `pip install` が拒否されるため、venv を作ってください。
+
 | 入力方式 | 使うタイミング | 押しっぱなし | Shift |
 |---|---|---|---|
 | `pynput`（推奨） | インストール済みのとき自動で使用 | ◎ なめらか | ◎ 効く |
@@ -104,6 +124,19 @@ python3 touhou_like.py
 ```powershell
 python touhou_like.py --demo 300
 ```
+
+### 入力方式の指定（トラブル時）
+
+入力バックエンドは自動判定されますが、環境に合わない場合は明示できます。
+
+```bash
+python touhou_like.py --input termios   # Linux: termios（pynput が効かないとき）
+python touhou_like.py --input pynput    # pynput を強制
+python touhou_like.py --input msvcrt    # Windows: msvcrt を強制
+```
+
+**Wayland（GNOME / KDE の Wayland セッション）では `pynput` がキーを取得できない場合があります。**
+そのときは `--input termios` で起動してください（押しっぱなしはキーリピート頼みになりますが操作できます）。
 
 ## 操作方法
 
@@ -202,6 +235,7 @@ python touhou_like.py --demo 300
 - 画面は幅40文字・高さ24行程度を想定しています。極端に狭い端末では表示が崩れます
 - `Shift` / `Space` が端末ショートカットに取られる環境では、`Z`（ショット）などで代替してください
 - `Shift` 単独押下は `msvcrt` では取得できない環境があります。**`pynput` を入れると解決します**（未導入でも WASD / Z / X / Q は動作します）
+- **Wayland 環境**では `pynput` がキーを取得できない場合があります。その場合は `--input termios` を指定してください
 - Linux / macOS では、日本語表示のために **UTF-8 のロケール**が必要です（`LANG=C.UTF-8` など）。表示が崩れる場合は等幅フォント（`DejaVu Sans Mono` など）を使ってください
 - 保存されるデータはハイスコアのみです（リプレイ保存は未実装）
 

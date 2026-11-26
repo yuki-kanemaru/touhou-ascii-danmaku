@@ -661,7 +661,8 @@ class Keyboard:
         b"OA": "up", b"OB": "down", b"OC": "right", b"OD": "left",
     }
 
-    def __init__(self, prefer_pynput=True):
+    def __init__(self, prefer_pynput=True, force=None):
+        force = force or "auto"
         self.backend = None
         self.msvcrt = None
         self._fd = None
@@ -675,21 +676,23 @@ class Keyboard:
         self._win_console = None
 
         # 1) pynput（押しっぱなし・斜め移動・Shift が快適に取れる）
-        if prefer_pynput and self._init_pynput():
-            return
+        if force in ("auto", "pynput") and prefer_pynput:
+            if self._init_pynput():
+                return
 
         # 2) Windows: msvcrt
-        try:
-            import msvcrt  # type: ignore
+        if force in ("auto", "msvcrt"):
+            try:
+                import msvcrt  # type: ignore
 
-            self.msvcrt = msvcrt
-            self.backend = "msvcrt"
-            return
-        except Exception:
-            self.msvcrt = None
+                self.msvcrt = msvcrt
+                self.backend = "msvcrt"
+                return
+            except Exception:
+                self.msvcrt = None
 
         # 3) Linux / macOS: termios + select
-        if sys.stdin is not None:
+        if force in ("auto", "termios") and sys.stdin is not None:
             try:
                 import select
                 import termios
@@ -928,8 +931,12 @@ def wait_next_frame(last, tick=TICK):
 # ---------------------------------------------------------------------------
 # 通常モード（ANSI 描画 + 端末入力ループ）
 # ---------------------------------------------------------------------------
-def play():
-    kb = Keyboard()
+def play(input_backend="auto"):
+    kb = Keyboard(force=input_backend)
+    if kb.backend == "pynput" and os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland":
+        print("[注意] Wayland 環境では pynput がキーを取得できない場合があります。")
+        print("       キーが効かないときは  python touhou_like.py --input termios  で起動してください。")
+        time.sleep(1.2)
     if not kb.available:
         print("[注意] この環境では端末のキー入力を取得できないため、自動デモで代わりに動作確認します。")
         print("       通常プレイは、キー入力できるターミナル（Windows: PowerShell / Linux: bash 等）で実行してください。")
@@ -989,6 +996,9 @@ def main(argv=None):
                         help="キーボード無しで N フレーム自動プレイし、最終フレームを素のテキストで出力")
     parser.add_argument("--list", action="store_true", help="弾幕パターンとボス名を一覧表示して終了")
     parser.add_argument("--no-save", action="store_true", help="ハイスコアを保存しない")
+    parser.add_argument("--input", choices=["auto", "pynput", "termios", "msvcrt"],
+                        default="auto",
+                        help="入力バックエンドを強制する（Waylandでpynputが効かない場合は termios）")
     args = parser.parse_args(argv)
 
     if args.list:
@@ -1010,7 +1020,7 @@ def main(argv=None):
             save_highscore(state["score"])
         return 0
 
-    return play()
+    return play(input_backend=args.input)
 
 
 if __name__ == "__main__":
