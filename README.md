@@ -51,6 +51,32 @@ cd touhou-ascii-danmaku
 python -m pip install -r requirements.txt
 ```
 
+#### `No module named pip` と出る場合（Debian/Ubuntu のシステムPythonなど）
+
+`/usr/bin/python: No module named pip` は、**その Python に pip が入っていない**だけです（Debian/Ubuntu は pip を別パッケージに分けているため）。システムPythonを直接いじらず、**仮想環境（venv）を作るのが安全**です。
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate      # Windows は .venv\Scripts\activate
+python -m pip install -r requirements.txt
+python touhou_like.py
+```
+
+`python3-venv` が無い場合は先に入れます。
+
+```bash
+sudo apt update && sudo apt install -y python3-venv python3-pip
+```
+
+pip を使わずに `uv` で実行する方法もあります。
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+uv run --with pynput python touhou_like.py
+```
+
+> `pynput` が入らなくても**ゲーム自体は起動します**（キーリピート頼みになり、操作はカクつきます）。
+
 | 入力方式 | 使うタイミング | 押しっぱなし | Shift |
 |---|---|---|---|
 | `pynput`（推奨） | インストール済みのとき自動で使用 | ◎ なめらか | ◎ 効く |
