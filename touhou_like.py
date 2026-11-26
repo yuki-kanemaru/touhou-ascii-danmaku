@@ -5,7 +5,7 @@
 =====================================================
 
 * 標準ライブラリのみ（curses 不使用 / ANSI エスケープで描画）
-* Windows（msvcrt）と Linux/macOS（termios + select）の両方でキー入力に対応
+* 入力: pynput（任意）> msvcrt（Windows）> termios（Linux/macOS）の順に自動選択
 * ロジック（state 辞書 + 純粋な更新関数）と入出力（ANSI 描画 / 端末入力）を分離
 * `--demo N` でキーボード無しの自動プレイ → 最終フレームを素のテキストで出力
 
@@ -625,26 +625,59 @@ def run_demo(frames, seed=0xC0FFEE, dt=TICK):
 
 
 # ---------------------------------------------------------------------------
-# リアルタイム入力（Windows: msvcrt / Linux・macOS: termios+tty+select）
+# リアルタイム入力
+#   1) pynput（任意依存・推奨） … 押下/離上を取得できるので「押しっぱなし」が快適
+#   2) Windows: msvcrt
+#   3) Linux/macOS: termios + tty + select
 # ---------------------------------------------------------------------------
+def map_pynput_key(key):
+    """pynput のキーを本ゲームのキー名へ変換する（未知は None）。
+
+    例: KeyCode(char='a') -> 'a' / Key.shift -> 'shift' / Key.left -> 'left'
+    """
+    name = getattr(key, "name", None)
+    if name:
+        table = {
+            "shift": "shift", "shift_l": "shift", "shift_r": "shift",
+            "left": "left", "right": "right", "up": "up", "down": "down",
+            "space": " ", "enter": "\r", "esc": "\x1b",
+        }
+        return table.get(name)
+    char = getattr(key, "char", None)
+    if isinstance(char, str) and char:
+        return char.lower()
+    return None
+
+
 class Keyboard:
-    """非ブロッキング入力。Windows は msvcrt、Linux/macOS は termios を使う。"""
+    """非ブロッキング入力。(active, edges) を返す。
+
+    active: いま押されているキー（移動・ショット・低速移動に使う）
+    edges : 前回 poll 以降に新しく押されたキー（ボム・終了など1回だけの入力に使う）
+    """
 
     ESC_SEQ = {
         b"[A": "up", b"[B": "down", b"[C": "right", b"[D": "left",
         b"OA": "up", b"OB": "down", b"OC": "right", b"OD": "left",
     }
 
-    def __init__(self):
+    def __init__(self, prefer_pynput=True):
         self.backend = None
         self.msvcrt = None
         self._fd = None
         self._saved = None
         self._termios = None
         self._select = None
-        self.keys = set()
+        self._listener = None
+        self._lock = None
+        self._held = set()
+        self._edges = set()
 
-        # 1) Windows: msvcrt
+        # 1) pynput（押しっぱなし・斜め移動・Shift が快適に取れる）
+        if prefer_pynput and self._init_pynput():
+            return
+
+        # 2) Windows: msvcrt
         try:
             import msvcrt  # type: ignore
 
@@ -654,7 +687,7 @@ class Keyboard:
         except Exception:
             self.msvcrt = None
 
-        # 2) Linux / macOS: termios + select
+        # 3) Linux / macOS: termios + select
         if sys.stdin is not None:
             try:
                 import select
@@ -671,26 +704,74 @@ class Keyboard:
             except Exception:
                 self.backend = None
 
+    def _init_pynput(self):
+        try:
+            from pynput import keyboard as _pk
+        except Exception:
+            return False
+        try:
+            import threading
+
+            self._lock = threading.Lock()
+
+            def on_press(key):
+                mapped = map_pynput_key(key)
+                if not mapped:
+                    return
+                with self._lock:
+                    if mapped not in self._held:
+                        self._edges.add(mapped)
+                    self._held.add(mapped)
+
+            def on_release(key):
+                mapped = map_pynput_key(key)
+                if not mapped:
+                    return
+                with self._lock:
+                    self._held.discard(mapped)
+
+            listener = _pk.Listener(on_press=on_press, on_release=on_release)
+            listener.daemon = True
+            listener.start()
+            self._listener = listener
+            self.backend = "pynput"
+            return True
+        except Exception:
+            self._listener = None
+            return False
+
     @property
     def available(self):
+        if self.backend in ("pynput", "posix"):
+            return True
         if self.backend == "msvcrt":
             return sys.stdin is not None and sys.stdin.isatty()
-        if self.backend == "posix":
-            return True
         return False
 
     @property
     def platform_name(self):
-        return {"msvcrt": "Windows (msvcrt)",
-                "posix": "Linux/macOS (termios)",
-                None: "未対応"}[self.backend]
+        return {
+            "pynput": "pynput（押しっぱなし対応）",
+            "msvcrt": "Windows (msvcrt)",
+            "posix": "Linux/macOS (termios)",
+            None: "未対応",
+        }[self.backend]
 
     def poll(self):
+        """(active, edges) を返す。"""
+        if self.backend == "pynput":
+            with self._lock:
+                active = set(self._held)
+                edges = set(self._edges)
+                self._edges.clear()
+            return active, edges
         if self.backend == "msvcrt":
-            return self._poll_windows()
+            keys = self._poll_windows()
+            return keys, set(keys)
         if self.backend == "posix":
-            return self._poll_posix()
-        return set()
+            keys = self._poll_posix()
+            return keys, set(keys)
+        return set(), set()
 
     def _poll_windows(self):
         out = set()
@@ -745,7 +826,13 @@ class Keyboard:
         return out
 
     def close(self):
-        """端末設定を元に戻す（POSIX では必須）。"""
+        """リスナー停止と端末設定の復元。"""
+        if self._listener is not None:
+            try:
+                self._listener.stop()
+            except Exception:
+                pass
+            self._listener = None
         if self.backend == "posix" and self._saved is not None and self._fd is not None:
             try:
                 self._termios.tcsetattr(self._fd, self._termios.TCSADRAIN, self._saved)
@@ -806,25 +893,20 @@ def play():
 
     state = new_state()
     state["hi_score"] = load_highscore()
-    pressed = set()
     last = time.perf_counter()
     try:
         _flush_stdout("\x1b[?25l")  # カーソル非表示
         while True:
             last, dt = wait_next_frame(last)
 
-            new_keys = kb.poll()
-            if new_keys:
-                pressed |= new_keys
-            inp = key_to_input(pressed, state)
+            active, new_keys = kb.poll()
+            inp = key_to_input(active, state)
+            inp["bomb"] = bool(new_keys & {"x"})  # ボムは押した瞬間だけ
+            if new_keys & {"q", "\x1b"}:
+                break
             if inp.get("quit"):
                 break
-            # ショットは長押し、ボムは押した瞬間だけ
-            bomb_edge = bool(new_keys & {"x"})
-            inp["bomb"] = bomb_edge
             update(state, dt, inp)
-            # キーは1フレームで消費（押しっぱなしはカウントし直し）
-            pressed = {k for k in new_keys if k in ("z", " ", "\r")} and set(new_keys & {"z", " ", "\r"}) or set()
 
             _flush_stdout(render_screen(state, ansi=True))
             if state["game_over"]:

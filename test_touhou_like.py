@@ -235,6 +235,10 @@ class TestKeyboardPosix(unittest.TestCase):
         kb._saved = None
         kb._termios = None
         kb._select = _FakeSelect(data)
+        kb._listener = None
+        kb._lock = None
+        kb._held = set()
+        kb._edges = set()
         kb._buf = kb._select.data
         kb.keys = set()
         return kb
@@ -250,7 +254,8 @@ class TestKeyboardPosix(unittest.TestCase):
 
         os.read = fake_read
         try:
-            return kb.poll()
+            active, edges = kb.poll()
+            return active | edges
         finally:
             os.read = real_read
 
@@ -313,6 +318,46 @@ class TestFrameTiming(unittest.TestCase):
 
         _, dt = T.wait_next_frame(time.perf_counter())
         self.assertGreaterEqual(dt, 0.0)
+
+
+class _FakePynputKey:
+    """pynput のキーオブジェクトの代役（name 属性または char 属性を持つ）。"""
+
+    def __init__(self, name=None, char=None):
+        if name is not None:
+            self.name = name
+        if char is not None:
+            self.char = char
+
+
+class TestKeyMapping(unittest.TestCase):
+    """pynput のキー → ゲーム内キー名 の変換を検証する。"""
+
+    def test_letter(self):
+        self.assertEqual(T.map_pynput_key(_FakePynputKey(char="a")), "a")
+
+    def test_letter_is_lowercased(self):
+        self.assertEqual(T.map_pynput_key(_FakePynputKey(char="Z")), "z")
+
+    def test_shift(self):
+        self.assertEqual(T.map_pynput_key(_FakePynputKey(name="shift")), "shift")
+
+    def test_arrows(self):
+        for name in ("left", "right", "up", "down"):
+            self.assertEqual(T.map_pynput_key(_FakePynputKey(name=name)), name)
+
+    def test_space_and_escape(self):
+        self.assertEqual(T.map_pynput_key(_FakePynputKey(name="space")), " ")
+        self.assertEqual(T.map_pynput_key(_FakePynputKey(name="esc")), "\x1b")
+
+    def test_unknown_key_returns_none(self):
+        self.assertIsNone(T.map_pynput_key(_FakePynputKey(name="f12")))
+        self.assertIsNone(T.map_pynput_key(object()))
+
+    def test_fallback_backend_without_pynput(self):
+        kb = T.Keyboard(prefer_pynput=False)
+        self.assertIn(kb.backend, ("msvcrt", "posix", None))
+        kb.close()
 
 
 if __name__ == "__main__":
