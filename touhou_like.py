@@ -672,6 +672,7 @@ class Keyboard:
         self._lock = None
         self._held = set()
         self._edges = set()
+        self._win_console = None
 
         # 1) pynput（押しっぱなし・斜め移動・Shift が快適に取れる）
         if prefer_pynput and self._init_pynput():
@@ -735,10 +736,46 @@ class Keyboard:
             listener.start()
             self._listener = listener
             self.backend = "pynput"
+            self._setup_console_no_echo()
             return True
         except Exception:
             self._listener = None
             return False
+
+    def _setup_console_no_echo(self):
+        """pynput 使用中は端末から読まないため、キーのエコーと行入力を止める。"""
+        # Windows: コンソールモードを直接変更する
+        try:
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.GetStdHandle(-10)  # STD_INPUT_HANDLE
+            mode = ctypes.c_uint32()
+            if kernel32.GetConsoleMode(handle, ctypes.byref(mode)) and mode.value:
+                echo_input = 0x0004
+                line_input = 0x0002
+                self._win_console = (kernel32, handle, mode.value)
+                kernel32.SetConsoleMode(
+                    handle, mode.value & ~echo_input & ~line_input
+                )
+                return True
+        except Exception:
+            self._win_console = None
+
+        # Linux / macOS: cbreak（エコー無効・1文字入力）
+        try:
+            import termios
+            import tty
+
+            if sys.stdin is not None and sys.stdin.isatty():
+                self._fd = sys.stdin.fileno()
+                self._termios = termios
+                self._saved = termios.tcgetattr(self._fd)
+                tty.setcbreak(self._fd)
+                return True
+        except Exception:
+            pass
+        return False
 
     @property
     def available(self):
@@ -833,7 +870,14 @@ class Keyboard:
             except Exception:
                 pass
             self._listener = None
-        if self.backend == "posix" and self._saved is not None and self._fd is not None:
+        if self._win_console is not None:
+            try:
+                kernel32, handle, mode = self._win_console
+                kernel32.SetConsoleMode(handle, mode)
+            except Exception:
+                pass
+            self._win_console = None
+        if self._saved is not None and self._fd is not None:
             try:
                 self._termios.tcsetattr(self._fd, self._termios.TCSADRAIN, self._saved)
             except Exception:

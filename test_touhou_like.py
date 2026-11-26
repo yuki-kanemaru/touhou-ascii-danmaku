@@ -239,6 +239,7 @@ class TestKeyboardPosix(unittest.TestCase):
         kb._lock = None
         kb._held = set()
         kb._edges = set()
+        kb._win_console = None
         kb._buf = kb._select.data
         kb.keys = set()
         return kb
