@@ -67,6 +67,7 @@ SYNC_END = "\x1b[?2026l"
 PLAYER_RADIUS = 1.0        # 当たり判定（とても小さい）
 GRAZE_RADIUS = 2.6         # グレイズ判定（当たり判定の外側リング）
 PLAYER_SPEED = 24.0        # 文字/秒
+PLAYER_ACCEL = 22.0        # 加減速の速さ（1/秒）。大きいほど機敏
 SHOT_INTERVAL = 0.09       # ショット間隔（秒）
 SHOT_SPEED = 42.0
 SHOT_DAMAGE = 1
@@ -179,6 +180,8 @@ def new_state(height=FIELD_H, width=FIELD_W, rng=None):
             "invincible": 1.5,
             "shot_cd": 0.0,
             "focus": False,
+            "vx": 0.0,
+            "vy": 0.0,
         },
         "score": 0,
         "hi_score": 0,
@@ -273,8 +276,24 @@ def _update_player(state, dt, move_x, move_y, shoot, bomb):
         move_y *= norm
 
     speed = PLAYER_SPEED * (0.55 if p["focus"] else 1.0)
-    p["x"] = clamp(p["x"] + move_x * speed * dt, 1.0, w - 2.0)
-    p["y"] = clamp(p["y"] + move_y * speed * dt, 1.0, h - 2.0)
+
+    # 加減速（イージング）: 押した瞬間に最高速へ達しないので精密に動かせる
+    k = 1.0 - math.exp(-PLAYER_ACCEL * dt)
+    p["vx"] = p.get("vx", 0.0) + (move_x * speed - p.get("vx", 0.0)) * k
+    p["vy"] = p.get("vy", 0.0) + (move_y * speed - p.get("vy", 0.0)) * k
+    if not move_x and abs(p["vx"]) < 1.5:
+        p["vx"] = 0.0
+    if not move_y and abs(p["vy"]) < 1.5:
+        p["vy"] = 0.0
+
+    new_x = clamp(p["x"] + p["vx"] * dt, 1.0, w - 2.0)
+    new_y = clamp(p["y"] + p["vy"] * dt, 1.0, h - 2.0)
+    if new_x != p["x"] + p["vx"] * dt:
+        p["vx"] = 0.0
+    if new_y != p["y"] + p["vy"] * dt:
+        p["vy"] = 0.0
+    p["x"] = new_x
+    p["y"] = new_y
 
     if p["invincible"] > 0:
         p["invincible"] = max(0.0, p["invincible"] - dt)

@@ -498,5 +498,30 @@ class TestDiagonalMovement(unittest.TestCase):
         self.assertAlmostEqual(diagonal, straight, places=6)
 
 
+class TestMovementEasing(unittest.TestCase):
+    """押した瞬間に最高速へ達せず、加減速すること（操作の精密さ）を検証する。"""
+
+    def test_velocity_ramps_up(self):
+        s = make()
+        s["player"]["x"] = 20.0
+        T.update(s, T.TICK, {"move_x": 1})
+        first = s["player"]["x"] - 20.0
+        for _ in range(15):
+            T.update(s, T.TICK, {"move_x": 1})
+        steady = s["player"]["vx"] * T.TICK
+        self.assertLess(first, steady, "初速は最高速より遅いはず")
+        self.assertGreater(steady, first * 1.5)
+
+    def test_velocity_returns_to_zero_after_release(self):
+        s = make()
+        s["player"]["x"] = 20.0
+        for _ in range(30):
+            T.update(s, T.TICK, {"move_x": 1})
+        self.assertGreater(s["player"]["vx"], 10.0)
+        for _ in range(30):
+            T.update(s, T.TICK, {})
+        self.assertEqual(s["player"]["vx"], 0.0)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
