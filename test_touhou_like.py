@@ -465,5 +465,38 @@ class TestColor(unittest.TestCase):
         self.assertIn("\x1b[38;2;", colored)
 
 
+class TestRenderSync(unittest.TestCase):
+    """synchronized output が ANSI 描画にだけ付くことを検証する。"""
+
+    def test_sync_codes_in_ansi_render(self):
+        s = make()
+        out = T.render_screen(s, ansi=True)
+        self.assertTrue(out.startswith(T.SYNC_START))
+        self.assertTrue(out.endswith(T.SYNC_END))
+
+    def test_no_sync_codes_in_plain_render(self):
+        s = make()
+        self.assertNotIn(T.SYNC_START, T.render_screen(s, ansi=False))
+
+
+class TestDiagonalMovement(unittest.TestCase):
+    """斜め移動が直進より速くならないこと（√2問題）を検証する。"""
+
+    def test_diagonal_distance_equals_straight(self):
+        s1 = make()
+        s1["player"]["x"], s1["player"]["y"] = 20.0, 9.0
+        T.update(s1, 0.1, {"move_x": 1, "move_y": 0})
+        straight = abs(s1["player"]["x"] - 20.0)
+
+        s2 = make()
+        s2["player"]["x"], s2["player"]["y"] = 20.0, 9.0
+        T.update(s2, 0.1, {"move_x": 1, "move_y": 1})
+        dx = s2["player"]["x"] - 20.0
+        dy = s2["player"]["y"] - 9.0
+        diagonal = (dx * dx + dy * dy) ** 0.5
+
+        self.assertAlmostEqual(diagonal, straight, places=6)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -59,6 +59,10 @@ COLORS = {
 }
 COLOR_FOCUS = "\x1b[38;2;255;255;255m"          # 低速移動中の自機（白）
 
+# synchronized output（対応端末では1フレームを原子的に描画し、ちらつきを抑える）
+SYNC_START = "\x1b[?2026h"
+SYNC_END = "\x1b[?2026l"
+
 # 自機
 PLAYER_RADIUS = 1.0        # 当たり判定（とても小さい）
 GRAZE_RADIUS = 2.6         # グレイズ判定（当たり判定の外側リング）
@@ -261,6 +265,12 @@ def _update_player(state, dt, move_x, move_y, shoot, bomb):
         state["bomb_timer"] = 0.45
         state["score"] += 10 * removed
         _push_message(state, "BOMB! 弾幕消去 %d" % removed)
+
+    # 斜め移動が速くならないよう正規化する（√2 問題の対策）
+    if move_x and move_y:
+        norm = 0.7071067811865476
+        move_x *= norm
+        move_y *= norm
 
     speed = PLAYER_SPEED * (0.55 if p["focus"] else 1.0)
     p["x"] = clamp(p["x"] + move_x * speed * dt, 1.0, w - 2.0)
@@ -574,7 +584,7 @@ def render_screen(state, ansi=False, clear=True, color=False):
     text = "\n".join(lines)
     if ansi:
         prefix = "\x1b[2J\x1b[H" if clear else "\x1b[H"
-        return prefix + text
+        return SYNC_START + prefix + text + SYNC_END
     return text
 
 
