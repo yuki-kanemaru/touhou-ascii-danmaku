@@ -153,6 +153,18 @@ gsettings set org.gnome.desktop.peripherals.keyboard rate 60
 
 （Sway / Hyprland は設定ファイルの `repeat_delay` / `repeat_rate` を変更）
 
+### 弾速の調整
+
+敵弾の速度は標準で **0.65倍**（従来は18行を1.2秒で横断 → 現在1.85秒）。環境変数で調整できます。
+
+```bash
+TOUHOU_BULLET_SPEED=0.5 python3 touhou_like.py   # さらに遅く（易しく）
+TOUHOU_BULLET_SPEED=0.8 python3 touhou_like.py   # 少し遅く
+TOUHOU_BULLET_SPEED=1.0 python3 touhou_like.py   # 従来の速さ
+```
+
+（0.3〜1.5の範囲に自動で丸められます。自機の弾速には影響しません）
+
 ## 操作方法
 
 | キー | 動作 |
