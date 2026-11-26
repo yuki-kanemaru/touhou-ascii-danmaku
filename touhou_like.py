@@ -71,6 +71,14 @@ PLAYER_ACCEL = 22.0        # 加減速の速さ（1/秒）。大きいほど機�
 FOCUS_SPEED_SCALE = 0.40   # Shift（低速移動）中の速度倍率
 SHOT_INTERVAL = 0.09       # ショット間隔（秒）
 SHOT_SPEED = 42.0
+
+# 敵弾の速度倍率（1.0=従来の速さ）。環境変数 TOUHOU_BULLET_SPEED で調整できる
+try:
+    ENEMY_BULLET_SPEED_SCALE = max(
+        0.3, min(1.5, float(os.environ.get("TOUHOU_BULLET_SPEED", "0.65")))
+    )
+except (TypeError, ValueError):
+    ENEMY_BULLET_SPEED_SCALE = 0.65
 SHOT_DAMAGE = 1
 
 # ボム
@@ -145,6 +153,7 @@ def _spawn_bullet(state, x, y, angle, speed):
     bullets = state["bullets"]
     if len(bullets) >= MAX_BULLETS:
         return
+    speed *= ENEMY_BULLET_SPEED_SCALE
     bullets.append([float(x), float(y), math.cos(angle) * speed, math.sin(angle) * speed])
 
 

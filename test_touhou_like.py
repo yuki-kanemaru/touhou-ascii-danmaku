@@ -572,5 +572,21 @@ class TestDiffRender(unittest.TestCase):
         self.assertTrue(out.startswith("\x1b[2J"))
 
 
+class TestBulletSpeed(unittest.TestCase):
+    """敵弾の速度倍率が効き、自機弾には影響しないことを検証する。"""
+
+    def test_enemy_bullet_speed_is_scaled(self):
+        s = make()
+        T._spawn_bullet(s, 20.0, 5.0, 0.0, 10.0)
+        vx, vy = s["bullets"][0][2], s["bullets"][0][3]
+        magnitude = (vx * vx + vy * vy) ** 0.5
+        self.assertAlmostEqual(magnitude, 10.0 * T.ENEMY_BULLET_SPEED_SCALE, places=6)
+
+    def test_player_shot_speed_is_not_scaled(self):
+        s = make()
+        T.update(s, T.TICK, {"shoot": True})
+        self.assertAlmostEqual(s["player_shots"][0][2], T.SHOT_SPEED, places=6)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
