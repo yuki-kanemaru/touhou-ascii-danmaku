@@ -137,6 +137,7 @@ python touhou_like.py --input kitty    # kitty系端末（押下/離上を使う
 python touhou_like.py --input termios   # Linux: termios（押しっぱなしはキーリピート頼み）
 python touhou_like.py --input pynput    # pynput を強制
 python touhou_like.py --input msvcrt    # Windows: msvcrt を強制
+python touhou_like.py --no-color        # 色を使わない
 ```
 
 **Wayland（GNOME / KDE の Wayland セッション）では `pynput` がキーを取得できない場合があります。**
@@ -236,6 +237,18 @@ gsettings set org.gnome.desktop.peripherals.keyboard rate 60
 - `Shift` を押している間の**低速移動**が確実に効く
 - `pynput` が無い環境では、従来どおり `msvcrt` / `termios` に自動でフォールバック（その場合もゲームは動作します）
 - ボムや終了は「押した瞬間」だけ反応するよう、`active`（押されている）と `edges`（新しく押された）を分けて扱う
+
+### 改良機能08: 見た目の改善（色分け・ちらつき低減・差分描画）
+
+- **24bit truecolor で色分け**: 自機=水色 / 弾=紫 / 雑魚敵=ピンク / ボス=黄 / 爆発=橙 / 背景=暗い灰。視認性が大きく向上します（`--no-color` または `NO_COLOR` 環境変数で無効化）
+- **synchronized output**（`ESC[?2026h` 〜 `ESC[?2026l`）: 1フレームを原子的に描画し、**ちらつき・テアリングを抑制**
+- **差分描画**: 前フレームから変わった行だけを書き換え（全画面 918バイト → 平均 36バイト/フレーム）
+
+### 改良機能09: 操作フィール（加減速・斜め正規化・低速移動）
+
+- **加減速（イージング）**: 押した瞬間に最高速へ達せず、約0.1秒かけて加速。細かい位置調整がしやすい
+- **斜め移動の正規化**: 斜め入力が直進より速くならないよう √2 で補正（以前は斜めが1.41倍速かった）
+- **低速移動の強化**: `Shift` で速度0.40倍。フォーカス中は自機を白で表示し、HUDに `FOCUS` を表示
 
 ## スクリーンショット
 
