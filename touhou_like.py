@@ -1096,8 +1096,16 @@ def play(input_backend="auto"):
         print("       キーが効かないときは  python touhou_like.py --input termios  で起動してください。")
         time.sleep(1.2)
     if not kb.available:
+        stdin_is_tty = sys.stdin is not None and sys.stdin.isatty()
         print("[注意] この環境では端末のキー入力を取得できないため、自動デモで代わりに動作確認します。")
-        print("       通常プレイは、キー入力できるターミナル（Windows: PowerShell / Linux: bash 等）で実行してください。")
+        if not stdin_is_tty:
+            print("  理由: 標準入力が端末ではありません（パイプ・リダイレクト・")
+            print("        エージェント/IDEの実行ランナー経由で起動している可能性があります）。")
+            print("  → ターミナル（kitty のウィンドウ等）で直接  python3 touhou_like.py  を実行してください。")
+        else:
+            print("  理由: 入力バックエンドを初期化できませんでした（TERM=%s）。"
+                  % (os.environ.get("TERM") or "?"))
+            print("  → python3 touhou_like.py --check-input  で原因を確認できます。")
         return run_main_demo(120)
 
     state = new_state()
@@ -1157,7 +1165,25 @@ def main(argv=None):
     parser.add_argument("--input", choices=["auto", "kitty", "pynput", "termios", "msvcrt"],
                         default="auto",
                         help="入力バックエンドを強制する（kitty系端末は kitty、Waylandでpynput不可なら termios）")
+    parser.add_argument("--check-input", action="store_true",
+                        help="入力環境の診断（バックエンド・stdinが端末か・TERM等）を表示して終了")
     args = parser.parse_args(argv)
+
+    if args.check_input:
+        kb = Keyboard(force=args.input)
+        stdin_ok = sys.stdin is not None and sys.stdin.isatty()
+        print("入力バックエンド :", kb.platform_name if kb.available else (kb.backend or "未対応"))
+        print("利用可能         :", kb.available)
+        print("stdin が端末     :", stdin_ok)
+        print("TERM             :", os.environ.get("TERM", "(未設定)"))
+        print("KITTY_WINDOW_ID  :", os.environ.get("KITTY_WINDOW_ID", "(未設定)"))
+        print("XDG_SESSION_TYPE :", os.environ.get("XDG_SESSION_TYPE", "(未設定)"))
+        kb.close()
+        if stdin_ok and kb.available:
+            print("→ この環境では通常プレイできます。")
+        else:
+            print("→ この環境ではキー入力が取れません。ターミナルで直接実行してください。")
+        return 0
 
     if args.list:
         print("patterns: " + ", ".join(PATTERN_NAMES))
