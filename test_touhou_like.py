@@ -464,6 +464,10 @@ class TestColor(unittest.TestCase):
         self.assertNotIn("\x1b[38;2;", plain)
         self.assertIn("\x1b[38;2;", colored)
 
+    def test_player_color_is_red(self):
+        """自機は赤（視認性のため）。水色に戻っていないこと。"""
+        self.assertEqual(T.COLORS[T.PLAYER_SYMBOL], "\x1b[38;2;255;70;70m")
+
 
 class TestRenderSync(unittest.TestCase):
     """synchronized output が ANSI 描画にだけ付くことを検証する。"""

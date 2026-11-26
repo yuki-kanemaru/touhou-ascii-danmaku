@@ -50,7 +50,7 @@ EMPTY_SYMBOL = "."
 # 色（24bit truecolor）。NO_COLOR / --no-color / 非tty では無効化される
 COLOR_RESET = "\x1b[0m"
 COLORS = {
-    PLAYER_SYMBOL: "\x1b[38;2;120;240;255m",   # @ 水色
+    PLAYER_SYMBOL: "\x1b[38;2;255;70;70m",     # @ 赤（見つけやすい）
     BOSS_SYMBOL: "\x1b[38;2;255;215;0m",       # B 黄
     ENEMY_SYMBOL: "\x1b[38;2;255;120;200m",    # o ピンク
     BULLET_SYMBOL: "\x1b[38;2;190;140;255m",   # * 紫
